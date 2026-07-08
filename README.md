@@ -227,18 +227,3 @@ docker compose up --build
 
 ---
 
-## Features Checklist (Assignment Requirements)
-
-- [x] Drag & Drop upload
-- [x] CSV preview with responsive, virtualized table
-- [x] Horizontal + vertical scrolling, sticky headers
-- [x] Confirm Import button before AI processing
-- [x] AI-powered field extraction (Gemini + OpenRouter)
-- [x] Batch processing with retry + exponential backoff
-- [x] Progress indicator during AI processing
-- [x] Display parsed results (success + skipped)
-- [x] Export results to CSV
-- [x] Dark mode
-- [x] Unit tests (frontend + backend)
-- [x] Docker setup
-- [x] Deployment to Vercel (frontend) + Render (backend)
