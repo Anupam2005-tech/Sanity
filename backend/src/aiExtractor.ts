@@ -29,28 +29,33 @@ async function callGemini(batch: { rowIndex: number; data: any }[]): Promise<{
   };
 }
 
-const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
-
 export async function callAI(batch: { rowIndex: number; data: any }[]): Promise<{
   records: { rowIndex: number; record: Partial<CRMRecord> }[];
   skipped: { rowIndex: number; reason: string }[];
 }> {
+  console.log(`[AI] Attempting extraction with Gemini...`);
   try {
-    if (provider === 'openrouter') {
-      return await callOpenRouter(batch);
-    }
     return await callGemini(batch);
-  } catch (error: any) {
-    if (error.status === 429) {
-      const enhancedError = new Error(error.message);
-      enhancedError.name = 'RateLimitError';
-      throw enhancedError;
+  } catch (geminiError: any) {
+    console.warn(`[AI] Gemini failed: ${geminiError.message || geminiError}. Falling back to OpenRouter...`);
+    try {
+      return await callOpenRouter(batch);
+    } catch (orError: any) {
+      console.error(`[AI] OpenRouter fallback also failed: ${orError.message || orError}`);
+      
+      // Bubble up the appropriate error name/types
+      if (orError.status === 429 || orError.name === 'RateLimitError') {
+        const enhancedError = new Error(orError.message);
+        enhancedError.name = 'RateLimitError';
+        throw enhancedError;
+      }
+      if (orError.name === 'TokenLimitError' || orError.message?.includes('token')) {
+        const enhancedError = new Error(orError.message);
+        enhancedError.name = 'TokenLimitError';
+        throw enhancedError;
+      }
+      throw orError;
     }
-    if (error.message?.includes('token') || error.name === 'TokenLimitError') {
-      const enhancedError = new Error(error.message);
-      enhancedError.name = 'TokenLimitError';
-      throw enhancedError;
-    }
-    throw error;
   }
 }
+
