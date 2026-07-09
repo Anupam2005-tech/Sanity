@@ -10,9 +10,6 @@ services:
     environment:
       - PORT=3001
       - AI_BATCH_SIZE=20
-      - SQLITE_PATH=/data/sanity.db
-    volumes:
-      - backend_data:/data
     restart: unless-stopped
 
   frontend:
@@ -26,6 +23,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
-volumes:
-  backend_data:

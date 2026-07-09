@@ -1,98 +1,113 @@
-# Sanity CSV Importer
+# GrowEasy CSV Importer
 
-An AI-powered CSV importer that intelligently maps any arbitrary CSV structure into a standard CRM lead format using AI (Gemini or OpenRouter). Built for the GrowEasy assignment submission.
-
-**Live Demo:** [https://sanity-csv.vercel.app](https://sanity-csv.vercel.app)
-**Position Applied For:** Software Developer (Full-Time)
+An AI-powered CSV importer that intelligently maps any arbitrary CSV structure into a standard GrowEasy CRM lead format. Upload any CSV file — regardless of column names — and the AI will figure out what goes where.
 
 ---
 
 ## How It Works
 
-1. **Upload** — Drag-and-drop or pick any CSV file. The app parses it incrementally (streaming) using PapaParse so large files show rows as they load.
-2. **Preview** — See the raw CSV data in a virtualized table (handles 100k+ rows smoothly) with sticky headers, horizontal+vertical scrolling, and no visible scrollbars.
-3. **Confirm** — Hit "Confirm Import". The frontend sends the data to the backend, which persists an import record and processes rows in configurable batches through an AI model.
-4. **Results** — The AI maps arbitrary column names to CRM fields, enforcing strict allowed values. Successfully parsed records and skipped rows are displayed with hover tooltips, badges, and export-to-CSV.
+1. **Upload** — Drag-and-drop or pick any CSV file. The app parses it incrementally (streaming) using PapaParse so large files show rows as they load without freezing the UI.
+2. **Preview** — See the raw CSV data in a virtualized table (handles 100k+ rows smoothly) with sticky headers and horizontal + vertical scrolling.
+3. **Confirm** — Hit "Start AI Import". The frontend sends all rows to the backend over a streaming connection. The backend processes them in configurable batches through an AI model, streaming live progress back.
+4. **Results** — AI-extracted CRM records are displayed in a table with hover tooltips, status badges, and download options (CSV or JSON). Skipped rows (missing email and mobile) are shown separately.
 
-### Key Design Decisions
+---
+
+## Key Design Decisions
 
 | Decision | Why |
-|----------|-----|
-| **Client-side CSV parsing** | Avoids uploading the file twice; immediate preview without a server round-trip. PapaParse streaming mode prevents UI freezes on large files. |
-| **SQLite with persistent volume** | Every import session is persisted — survive server restarts, view past imports, recover from network drops. The database file lives on a persistent disk (Render supports this; Vercel serverless doesn't). |
-| **AI as a swappable provider** | An `AI_PROVIDER` env var switches between Gemini and OpenRouter. OpenRouter dynamically fetches free models and falls back through them, so no hardcoded model list. |
-| **Batch processing with exponential backoff** | Large CSVs are split into configurable-size batches. On rate limits (429), retries use exponential backoff (`3^(n-1)` seconds). On token errors, batches are halved automatically. |
-| **Virtualized tables everywhere** | Using `@tanstack/react-virtual` for all data tables — thousands of rows rendered as DOM only for visible viewport. Zero layout shift, smooth scrolling. |
-| **Sticky headers, hidden scrollbars** | All tables have sticky column headers. Scrollbars are hidden via CSS for a clean look while keeping full scroll functionality. |
+|---|---|
+| **Stateless backend (no DB)** | Processing is purely in-memory — rows in, CRM records out. No SQLite, no persisted state, no native module headaches. Simpler, faster, easier to deploy anywhere. |
+| **Single streaming endpoint** | `POST /api/process` receives rows, runs AI batches, and streams SSE progress events back through the same HTTP connection. No polling, no import IDs, no two-step handshake. |
+| **XHR streaming on the frontend** | `EventSource` only supports GET requests. XHR lets us POST the row data and still consume the SSE response incrementally — best of both worlds. |
+| **Client-side CSV parsing** | Avoids uploading a raw file to the server. PapaParse streaming mode parses the CSV directly in the browser and sends clean JSON rows. |
+| **AI as a swappable provider** | Gemini is tried first. If it fails, OpenRouter is used as a fallback. The system prompt is shared between both providers. |
+| **Batch processing with retry + backoff** | Large CSVs are split into configurable-size batches (default: 20 rows). On rate limits (429), retries use exponential backoff. On token limit errors, batches are halved automatically. |
+| **Strict AI output validation** | Even after the AI responds, the backend enforces `crm_status` and `data_source` enum constraints, stamps `created_at` with the actual import timestamp, and skips any record missing both email and mobile. |
+| **Download as CSV or JSON** | Results can be exported in either format from the same dropdown button. |
+
+---
+
+## CRM Fields Extracted
+
+| Field | Description |
+|---|---|
+| `created_at` | Import timestamp (set by the system — not from the CSV) |
+| `name` | Lead full name |
+| `email` | Primary email (extras go to `crm_note`) |
+| `country_code` | Dialing code e.g. `+91` |
+| `mobile_without_country_code` | Primary mobile (extras go to `crm_note`) |
+| `company` | Company or organisation name |
+| `city` | City |
+| `state` | State or province |
+| `country` | Country |
+| `lead_owner` | Assigned lead owner / sales rep |
+| `crm_status` | One of: `GOOD_LEAD_FOLLOW_UP`, `DID_NOT_CONNECT`, `BAD_LEAD`, `SALE_DONE` |
+| `crm_note` | Remarks, extra contacts, follow-up notes, unmappable data |
+| `data_source` | One of: `leads_on_demand`, `meridian_tower`, `eden_park`, `varah_swamy`, `sarjapur_plots` |
+| `possession_time` | Expected property possession time |
+| `description` | Additional description |
 
 ---
 
 ## Tech Stack
 
 ### Frontend
-- **Framework:** Next.js 14 (App Router)
-- **UI:** React 18, Tailwind CSS, Framer Motion
+- **Framework:** Next.js 14 (App Router, `output: standalone`)
+- **UI:** React 18, Tailwind CSS, Framer Motion, Lucide Icons
 - **CSV Parsing:** PapaParse (streaming step mode)
-- **Virtualization:** `@tanstack/react-virtual`
-- **Testing:** Vitest + Testing Library
-- **Deployment:** Vercel
+- **Virtualization:** `@tanstack/react-virtual` (preview table)
+- **Notifications:** `react-hot-toast`
 
 ### Backend
-- **Runtime:** Node.js 20+, Express 5
-- **Language:** TypeScript
-- **Database:** SQLite via `better-sqlite3`
-- **AI:** Google Gemini (`@google/generative-ai`) and OpenRouter API
-- **Testing:** Vitest
-- **Deployment:** Render
+- **Runtime:** Node.js 20, Express 5
+- **Language:** TypeScript (compiled with `tsc`)
+- **AI:** Google Gemini (`@google/generative-ai`) with OpenRouter fallback
+- **Architecture:** Fully stateless — no database, no file I/O
 
 ### Shared
-- **`shared/`** — TypeScript types (`CRMRecord`, `SkippedRecord`, API DTOs) used by both frontend and backend, preventing type drift.
+- **`shared/`** — TypeScript types (`CRMRecord`, `ImportStatusResponse`, etc.) used by both frontend and backend to prevent type drift.
 
 ---
 
 ## Project Structure
 
 ```
-sanity-csv/
-├── frontend/                    # Next.js 14 application
+groweasy-csv/
+├── frontend/                        # Next.js 14 application
 │   ├── src/
-│   │   ├── app/
-│   │   │   ├── components/      # UI components (each step is one component)
-│   │   │   │   ├── UploadStep.tsx       — Step 1: drag-and-drop/file picker
-│   │   │   │   ├── PreviewTable.tsx     — Step 2: raw CSV preview table
-│   │   │   │   ├── ConfirmStep.tsx      — Step 3: confirm & trigger import
-│   │   │   │   ├── ResultsStep.tsx      — Step 4: AI-extracted results with preview modal
-│   │   │   │   ├── ProgressIndicator.tsx— Step progress bar (circles + connecting line)
-│   │   │   │   ├── HoverTooltip.tsx      — Shared tooltip + CRM field descriptions
-│   │   │   │   ├── ThemeToggle.tsx       — Light/dark mode toggle
-│   │   │   │   └── ToastProvider.tsx     — Toast notification provider
-│   │   │   ├── layout.tsx        — Root layout, header, theme script
-│   │   │   ├── page.tsx          — Main page with 4-step state machine
-│   │   │   └── globals.css       — Global styles, CSS variables for theming
-│   │   └── __tests__/            — Frontend unit tests
+│   │   └── app/
+│   │       ├── components/
+│   │       │   ├── UploadStep.tsx          — Step 1: drag-and-drop / file picker
+│   │       │   ├── PreviewTable.tsx        — Step 2: raw CSV preview (virtualized)
+│   │       │   ├── ConfirmStep.tsx         — Step 3: trigger AI import via XHR stream
+│   │       │   ├── ResultsStep.tsx         — Step 4: results table + CSV/JSON download
+│   │       │   ├── ProgressIndicator.tsx   — Step progress bar
+│   │       │   ├── HoverTooltip.tsx        — Tooltip + CRM field descriptions
+│   │       │   ├── ThemeToggle.tsx         — Light / dark mode toggle
+│   │       │   └── ToastProvider.tsx       — Toast notification provider
+│   │       ├── layout.tsx                  — Root layout, header, theme script
+│   │       ├── page.tsx                    — 4-step state machine
+│   │       └── globals.css                 — Global styles + CSS variables
 │   ├── tailwind.config.ts
-│   └── Dockerfile                — Multi-stage: build → standalone Next.js
+│   └── Dockerfile                          — Multi-stage: build → standalone Next.js
 │
-├── backend/                      # Express API server
+├── backend/                         # Express API server (stateless)
 │   ├── src/
-│   │   ├── index.ts              — Express app setup, routes, CORS, error handling
-│   │   ├── aiExtractor.ts        — AI provider dispatcher (Gemini vs OpenRouter)
-│   │   ├── batchProcessor.ts     — Batch splitting, retry logic, progress tracking
-│   │   ├── ai/
-│   │   │   ├── shared.ts         — SYSTEM_PROMPT, JSON parser, enum validation
-│   │   │   └── openRouter.ts     — OpenRouter API client with free-model fallback
-│   │   ├── db/
-│   │   │   └── client.ts         — SQLite init, schema, sweep-stuck logic
-│   │   └── __tests__/            — Backend unit tests
-│   ├── Dockerfile                — Multi-stage: build → slim production image
+│   │   ├── index.ts                        — Routes, in-memory batch processing, SSE streaming
+│   │   ├── aiExtractor.ts                  — AI provider dispatcher (Gemini → OpenRouter)
+│   │   └── ai/
+│   │       ├── shared.ts                   — SYSTEM_PROMPT, JSON cleaner, strict rules
+│   │       └── openRouter.ts               — OpenRouter API client with free-model fallback
+│   ├── Dockerfile                          — Multi-stage: build → slim runner (no native modules)
 │   └── tsconfig.json
 │
-├── shared/                       # Shared TypeScript types
-│   └── src/types.ts              — CRMRecord, ImportStatusResponse, etc.
+├── shared/                          # Shared TypeScript types
+│   └── src/types.ts                        — CRMRecord, ImportStatusResponse, etc.
 │
-├── docker-compose.yml            — Orchestrates frontend + backend + volume
-├── .env                          — Docker environment (API keys)
-└── .gitignore                    — Ignores node_modules, .env, build artifacts
+├── docker-compose.yml               — Orchestrates frontend + backend
+├── .env                             — Docker environment (API keys)
+└── .gitignore
 ```
 
 ---
@@ -101,38 +116,58 @@ sanity-csv/
 
 ### Prerequisites
 - Node.js v20+
-- A Gemini API key or OpenRouter API key
+- A **Gemini API key** (`GEMINI_API_KEY`) and/or an **OpenRouter API key** (`OPENROUTER_API_KEY`)
+
+---
 
 ### 1. Environment Variables
 
-#### Root `.env` (for Docker):
+#### Root `.env` (used by Docker):
 ```env
 GEMINI_API_KEY=your-gemini-api-key
 GEMINI_MODEL=gemini-2.0-flash
-AI_PROVIDER=openrouter
 OPENROUTER_API_KEY=your-openrouter-api-key
 ```
 
-#### `backend/.env` (for manual run):
+#### `backend/.env` (used for manual / local dev):
 ```env
 PORT=3001
 GEMINI_API_KEY=your-gemini-api-key
-AI_BATCH_SIZE=20
-AI_PROVIDER=openrouter
-OPENROUTER_API_KEY=your-openrouter-api-key
-SQLITE_PATH=./data/sanity.db
 GEMINI_MODEL=gemini-2.0-flash
+OPENROUTER_API_KEY=your-openrouter-api-key
+AI_BATCH_SIZE=20
 ```
 
-#### `frontend/.env` (for manual run):
+#### `frontend/.env` (used for manual / local dev):
 ```env
 NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
 ```
 
-### 2. Install & Run (Manual)
+---
+
+### 2. Run with Docker (recommended)
 
 ```bash
-# Install all workspace dependencies
+# Clone and enter the repo
+git clone <repo-url>
+cd groweasy-csv
+
+# Add your API keys to .env
+cp .env.example .env   # then edit .env
+
+# Build and start both services
+docker compose up --build
+```
+
+- Frontend → [http://localhost:3000](http://localhost:3000)
+- Backend  → [http://localhost:3001](http://localhost:3001)
+
+---
+
+### 3. Run Manually (without Docker)
+
+```bash
+# Install all workspace dependencies from repo root
 npm install
 
 # Terminal 1 — Backend
@@ -144,86 +179,77 @@ cd frontend
 npm run dev
 ```
 
-Frontend: `http://localhost:3000` | Backend: `http://localhost:3001`
-
-### 3. Install & Run (Docker)
-
-```bash
-docker compose up --build
-```
-
-### 4. Run Tests
-
-```bash
-# Frontend tests
-cd frontend && npm test
-
-# Backend tests
-cd backend && npm test
-```
-
 ---
 
-## API Endpoints
+## API Reference
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/imports` | Create a new import with CSV row data |
-| `GET` | `/api/imports/:id` | Get import status and results |
-| `POST` | `/api/imports/:id/process` | Start AI processing |
-| `GET` | `/api/imports/:id/stream` | SSE stream for real-time progress updates (text/event-stream) |
+| `GET` | `/api/health` | Health check — returns `{ status: "ok", timestamp }` |
+| `POST` | `/api/process` | Accept rows → run AI batches → stream SSE progress + results |
+
+### `POST /api/process`
+
+**Request body:**
+```json
+{
+  "rows": [{ "Name": "John", "Email": "john@example.com", ... }],
+  "filename": "leads.csv"
+}
+```
+
+**Response:** `text/event-stream` — streams the following SSE events:
+
+| Event type | Payload |
+|---|---|
+| `progress` | `{ batchesCompleted: 2, batchesTotal: 5 }` |
+| `complete` | `{ result: { records: [...], skipped: [...], ... } }` |
+| `error` | `{ message: "..." }` |
+
+**Limits:** max 5000 rows per request.
 
 ---
 
 ## AI Configuration
 
-### Provider Switching
+### Provider Selection
 
-Set `AI_PROVIDER` in your `.env`:
+The backend tries **Gemini first**, then falls back to **OpenRouter** if Gemini fails.
 
-- `gemini` — Uses Google Gemini (`@google/generative-ai`). Set `GEMINI_API_KEY` and `GEMINI_MODEL`.
-- `openrouter` — Uses OpenRouter API. Set `OPENROUTER_API_KEY`. Dynamically fetches free models, falls back through up to 5 models, with a hardcoded fallback list if the API fetch fails.
+Set these in your `.env`:
 
-### AI Instructions
+```env
+GEMINI_API_KEY=...          # required for Gemini
+GEMINI_MODEL=gemini-2.0-flash
+OPENROUTER_API_KEY=...      # required for OpenRouter fallback
+```
 
-The system prompt enforces:
+Set `AI_BATCH_SIZE` to control how many CSV rows are sent to the AI per request (default: `20`, range: `5–50`).
 
-1. **CRM Status** — Only `GOOD_LEAD_FOLLOW_UP`, `DID_NOT_CONNECT`, `BAD_LEAD`, `SALE_DONE`
-2. **Data Source** — Only `leads_on_demand`, `meridian_tower`, `eden_park`, `varah_swamy`, `sarjapur_plots` (blank if uncertain)
-3. **Date Format** — `created_at` must be parseable by `new Date(created_at)`
-4. **CRM Notes** — Extra numbers, emails, follow-up notes, anything useful
-5. **Multiple Emails/Mobiles** — First in the main field, rest in `crm_note`
-6. **Skip Invalid Records** — Records with neither email nor mobile are skipped
+### AI Extraction Rules (strictly enforced)
+
+1. **`crm_status`** — Must be exactly one of: `GOOD_LEAD_FOLLOW_UP`, `DID_NOT_CONNECT`, `BAD_LEAD`, `SALE_DONE` — or `null`.
+2. **`data_source`** — Must be exactly one of: `leads_on_demand`, `meridian_tower`, `eden_park`, `varah_swamy`, `sarjapur_plots` — or `null`.
+3. **`created_at`** — Always set to the current import timestamp by the backend (never from the CSV).
+4. **Multiple emails** — First email in `email` field; extras appended to `crm_note`.
+5. **Multiple mobiles** — First mobile in `mobile_without_country_code`; extras appended to `crm_note`.
+6. **`crm_note`** — Used for remarks, follow-up notes, extra contacts, and any data that doesn't fit another field.
+7. **Skip invalid records** — Any row with neither an email nor a mobile number is skipped entirely and reported in the `skipped` list.
+8. **CSV safety** — No unescaped line breaks inside field values.
 
 ---
 
 ## Deployment
 
-### Frontend → Vercel
-
-1. Push the repository to GitHub.
-2. Import the project into Vercel.
-3. Set root directory to `frontend/`.
-4. Add environment variable: `NEXT_PUBLIC_BACKEND_URL=https://your-backend.onrender.com`.
-5. Deploy.
-
-### Backend → Render
-
-1. Create a new **Web Service** on Render.
-2. Connect your GitHub repository.
-3. Set:
-   - **Root Directory:** `backend`
-   - **Build Command:** `npm install && npx tsc`
-   - **Start Command:** `node dist/index.js`
-4. Add a **Persistent Disk** (Render → your service → Disks) — mount it at `/data`.
-5. Set environment variables (all from `backend/.env`), with `SQLITE_PATH=/data/sanity.db`.
-6. Deploy.
-
-### Docker
+### Docker (anywhere with Docker)
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
----
 
+**Build command:** `npm install && npx tsc`  
+**Start command:** `node dist/backend/src/index.js`  
+**Environment variables:** `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENROUTER_API_KEY`, `AI_BATCH_SIZE`, `PORT`
+
+---
