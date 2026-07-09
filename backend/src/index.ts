@@ -7,9 +7,22 @@ import { CRMRecord } from 'shared/types';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const rawPort = process.env.PORT || '3001';
+const PORT = parseInt(rawPort, 10);
+if (isNaN(PORT)) {
+  console.error(`[FATAL] PORT env var is not a valid number: "${rawPort}". Set PORT to a number (e.g. 3001) in your environment.`);
+  process.exit(1);
+}
 
-app.use(cors());
+
+
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+app.use(cors({
+  origin: ALLOWED_ORIGIN,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+}));
+app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 
 // Health check
