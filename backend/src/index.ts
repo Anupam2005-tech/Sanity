@@ -14,15 +14,13 @@ if (isNaN(PORT)) {
   process.exit(1);
 }
 
-
-
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 app.use(cors({
   origin: ALLOWED_ORIGIN,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
 }));
-app.options(/(.*)/,  cors());
+app.options(/(.*)/, cors());
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -51,8 +49,9 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts: number, baseDelay
       return await fn();
     } catch (error: any) {
       attempt++;
+      // Non-retryable errors: fail fast instead of burning the retry budget.
+      if (error.name === 'TokenLimitError' || error.name === 'ConfigError') throw error;
       if (attempt >= maxAttempts) throw error;
-      if (error.name === 'TokenLimitError') throw error;
       const delay = error.name === 'RateLimitError'
         ? Math.max(baseDelayMs * Math.pow(3, attempt - 1), 15000)
         : baseDelayMs * Math.pow(2, attempt - 1);
@@ -71,20 +70,17 @@ function sanitiseRecord(rec: Partial<CRMRecord>, importTimestamp: string): Parti
   return rec;
 }
 
+// Spec (GrowEasy assignment, "Skip Invalid Records"): skip a row ONLY if it
+// has NEITHER email NOR mobile number. No other condition disqualifies a row.
 function shouldKeepRecord(rec: Partial<CRMRecord>): { keep: boolean; reason?: string } {
   const hasEmail = !!rec.email?.trim();
   const hasMobile = !!rec.mobile_without_country_code?.trim();
-  const hasName = !!rec.name?.trim();
 
   if (!hasEmail && !hasMobile) {
     return { keep: false, reason: 'Missing both email and mobile number' };
   }
-  if (!hasEmail && !hasName) {
-    return { keep: false, reason: 'Missing both email and name' };
-  }
   return { keep: true };
 }
-
 
 // ── SSE streaming process endpoint ───────────────────────────────
 //
@@ -193,25 +189,17 @@ function processBatch(
   const processedRecords = result.records || [];
   const processedSkipped: any[] = [...(result.skipped || [])];
 
+  // Single pass: sanitise, validate, and split into valid vs. skipped.
+  const validRecords: typeof processedRecords = [];
   for (const rec of processedRecords) {
     sanitiseRecord(rec.record, importTimestamp);
     const check = shouldKeepRecord(rec.record);
-    if (!check.keep) {
+    if (check.keep) {
+      validRecords.push(rec);
+    } else {
       processedSkipped.push({ index: rec.rowIndex, reason: check.reason });
     }
   }
-
-  const skippedIndices = new Set(processedSkipped.map((s: any) => s.rowIndex ?? s.index));
-
-  const validRecords = processedRecords.filter(r => {
-    if (skippedIndices.has(r.rowIndex)) return false;
-    const check = shouldKeepRecord(r.record);
-    if (!check.keep) {
-      processedSkipped.push({ index: r.rowIndex, reason: check.reason });
-      return false;
-    }
-    return true;
-  });
 
   // Account for rows the AI missed entirely
   const accountedIndices = new Set([

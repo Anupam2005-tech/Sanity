@@ -104,7 +104,7 @@ async function tryModel(
     if (isResponseFormatError && !modelsWithoutJsonMode.has(model)) {
       modelsWithoutJsonMode.add(model);
       delete body.response_format;
-      
+
       const retryResponse = await fetch(`${OPENROUTER_API_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -157,7 +157,9 @@ export async function callOpenRouter(batch: { rowIndex: number; data: any }[]): 
 }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY is not set');
+    const error = new Error('OPENROUTER_API_KEY is not set');
+    error.name = 'ConfigError';
+    throw error;
   }
 
   await ensureModelsLoaded(apiKey);
@@ -170,7 +172,7 @@ export async function callOpenRouter(batch: { rowIndex: number; data: any }[]): 
     const currentModel = modelsToTry[attempt];
     try {
       const result = await tryModel(currentModel, batch, apiKey);
-      
+
       // On success, move this model to the front of activeModels
       const indexInActive = activeModels.indexOf(currentModel);
       if (indexInActive > 0) {
@@ -182,7 +184,7 @@ export async function callOpenRouter(batch: { rowIndex: number; data: any }[]): 
       lastError = error;
       if (error.name === 'TokenLimitError') throw error;
       console.error(`Free model ${currentModel} failed:`, error.message?.slice(0, 120));
-      
+
       // On failure, move this model to the back of activeModels so we don't try it first next time
       const indexInActive = activeModels.indexOf(currentModel);
       if (indexInActive !== -1) {

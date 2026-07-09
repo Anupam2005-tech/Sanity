@@ -59,11 +59,10 @@ If a row contains multiple mobile numbers:
 
 RULE 7 — Skip Invalid Records (MANDATORY):
 - If a row has NEITHER a valid email NOR a valid mobile number, you MUST skip it. (reason: "Missing both email and mobile number")
-- If a row has NEITHER a valid email NOR a valid name, you MUST skip it. (reason: "Missing both email and name")
-If a row meets either of these skip conditions:
+This is the ONLY condition that disqualifies a row. A row with a mobile number but no name, or a mobile number but no email, must still be kept.
+If a row meets the skip condition above:
   - Add it to the "skipped" array with the corresponding reason.
   - Do NOT add it to "records". This rule is absolute.
-
 
 RULE 8 — CSV Compatibility:
 Do NOT introduce line breaks inside field values.
@@ -71,7 +70,7 @@ If a value naturally contains a newline, replace it with a space or \\n.
 
 === CRM FIELD DEFINITIONS ===
 - created_at: ALWAYS null. The system sets this to the current import time.
-- name: Full name. Combine "First Name" + "Last Name" if split. e.g., "John" + "Doe" → "John Doe".
+- name: Full name. Combine "First Name" + "Last Name" if split. e.g., "John" + "Doe" → "John Doe". May be null if not present in the source row.
 - email: First email only. Additional emails go to crm_note.
 - country_code: Dialing code e.g. "+91", "+1". Infer if possible; otherwise null.
 - mobile_without_country_code: First mobile number only, without country code. Extra mobiles go to crm_note.
