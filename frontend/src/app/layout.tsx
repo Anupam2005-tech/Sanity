@@ -6,7 +6,7 @@ import { ToastProvider } from "./components/ToastProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 
 const geist = localFont({
-  src: "../../../public/fonts/GeistVF.woff",
+  src: "../../public/fonts/GeistVF.woff",
   variable: "--font-geist",
   display: "swap",
 });
