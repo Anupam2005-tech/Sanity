@@ -30,129 +30,108 @@ const STATUS_TEXTS = [
 export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }: ConfirmStepProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ completed: number, total: number } | null>(null);
+  const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const [statusIndex, setStatusIndex] = useState(0);
   const [displayPercent, setDisplayPercent] = useState<number>(0);
 
   const isMounted = useRef(true);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   useEffect(() => {
     return () => {
       isMounted.current = false;
-      eventSourceRef.current?.close();
+      xhrRef.current?.abort();
     };
   }, []);
 
-  // Simulated progress to make the progress bar fill up continuously and smoothly
+  // Animated progress bar — fills smoothly up to 92% while AI works
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isProcessing) {
       setDisplayPercent(0);
       interval = setInterval(() => {
-        setDisplayPercent((prev) => {
+        setDisplayPercent(prev => {
           if (prev >= 92) return prev;
-          // Decelerate the increment as it gets closer to 92%
           const remaining = 92 - prev;
-          const increment = Math.max(1, Math.ceil(remaining * 0.08));
-          return prev + increment;
+          return prev + Math.max(1, Math.ceil(remaining * 0.08));
         });
       }, 350);
     } else {
       setDisplayPercent(0);
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    return () => { if (interval) clearInterval(interval); };
   }, [isProcessing]);
 
-  // Rotate status texts every 3s during processing
+  // Rotate status texts every 3s
   useEffect(() => {
     if (!isProcessing) return;
-    const interval = setInterval(() => {
-      setStatusIndex((prev) => (prev + 1) % STATUS_TEXTS.length);
-    }, 3000);
+    const interval = setInterval(() => setStatusIndex(prev => (prev + 1) % STATUS_TEXTS.length), 3000);
     return () => clearInterval(interval);
   }, [isProcessing]);
 
   const handleStart = async () => {
     setError(null);
     setIsProcessing(true);
-    // Initialize progress immediately using estimated batch count
     const estimatedTotal = Math.ceil(totalRows / 20) || 1;
     setProgress({ completed: 0, total: estimatedTotal });
 
-    try {
-      const createRes = await fetch(`${BACKEND_URL}/api/imports`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, filename })
-      });
+    // Use XHR to stream the SSE response from POST /api/process
+    const xhr = new XMLHttpRequest();
+    xhrRef.current = xhr;
+    xhr.open('POST', `${BACKEND_URL}/api/process`, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
 
-      if (!createRes.ok) {
-        const errData = await createRes.json().catch(() => ({}));
-        throw new Error(errData.error || `HTTP ${createRes.status}`);
-      }
+    let buffer = '';
 
-      const { importId } = await createRes.json();
+    xhr.onprogress = () => {
+      // Parse any new complete SSE lines from the response text
+      const newText = xhr.responseText.slice(buffer.length);
+      buffer = xhr.responseText;
 
-      // Connect to SSE stream for real-time progress
-      const eventSource = new EventSource(`${BACKEND_URL}/api/imports/${importId}/stream`);
-      eventSourceRef.current = eventSource;
-
-      eventSource.onmessage = (event) => {
-        if (!isMounted.current) return;
+      for (const line of newText.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
         try {
-          const data = JSON.parse(event.data);
+          const data = JSON.parse(trimmed.slice(5).trim());
+          if (!isMounted.current) return;
+
           if (data.type === 'progress') {
             setProgress({ completed: data.batchesCompleted, total: data.batchesTotal });
-            const actualPercent = Math.round((data.batchesCompleted / data.batchesTotal) * 100);
-            setDisplayPercent((prev) => Math.max(prev, actualPercent));
+            const pct = Math.round((data.batchesCompleted / data.batchesTotal) * 100);
+            setDisplayPercent(prev => Math.max(prev, pct));
           } else if (data.type === 'complete') {
-            const total = data.result.batchesTotal || Math.ceil(totalRows / 20) || 1;
+            const total = data.result.batchesTotal || estimatedTotal;
             setProgress({ completed: total, total });
             setDisplayPercent(100);
             toast.success('AI Import completed successfully!');
             setTimeout(() => {
               if (isMounted.current) {
-                eventSource.close();
+                xhr.abort();
                 onSuccess(data.result);
               }
             }, 600);
           } else if (data.type === 'error') {
-            eventSource.close();
-            throw new Error(data.message);
+            throw new Error(data.message || 'Processing failed');
           }
         } catch (err: any) {
-          eventSource.close();
           if (isMounted.current) {
             setError(err.message || 'Processing failed');
             toast.error(err.message || 'Processing failed');
             setIsProcessing(false);
           }
         }
-      };
+      }
+    };
 
-      eventSource.onerror = () => {
-        // The stream will close when processing completes; don't treat as error
-        // because onmessage with 'complete' type already handles success
-      };
-
-      // Also fire the process endpoint to start processing
-      fetch(`${BACKEND_URL}/api/imports/${importId}/process`, {
-        method: 'POST'
-      }).catch(() => {
-        // Ignore — the SSE stream will report the final result or error
-      });
-
-    } catch (err: any) {
+    xhr.onerror = () => {
       if (isMounted.current) {
-        const errMsg = err.message || 'An unexpected error occurred.';
-        setError(errMsg);
-        toast.error(errMsg);
+        setError('Network error — could not reach the server.');
+        toast.error('Network error — could not reach the server.');
         setIsProcessing(false);
       }
-    }
+    };
+
+    xhr.send(JSON.stringify({ rows, filename }));
   };
 
   return (
@@ -204,16 +183,14 @@ export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }
               </p>
             </div>
 
-            {isProcessing && (
-              <div className="w-full bg-muted rounded-full h-2.5 mt-4 overflow-hidden">
-                <motion.div
-                  className="bg-foreground h-2.5 rounded-full"
-                  initial={false}
-                  animate={{ width: `${displayPercent}%` }}
-                  transition={{ duration: 0.4, ease: 'easeInOut' }}
-                />
-              </div>
-            )}
+            <div className="w-full bg-muted rounded-full h-2.5 mt-4 overflow-hidden">
+              <motion.div
+                className="bg-foreground h-2.5 rounded-full"
+                initial={false}
+                animate={{ width: `${displayPercent}%` }}
+                transition={{ duration: 0.4, ease: 'easeInOut' }}
+              />
+            </div>
           </motion.div>
         ) : (
           <div className="flex justify-end gap-2">
@@ -233,6 +210,10 @@ export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }
               {error ? 'Try Again' : 'Start AI Import'}
             </motion.button>
           </div>
+        )}
+
+        {error && !isProcessing && (
+          <p className="text-xs text-red-500 mt-4 text-center">{error}</p>
         )}
       </div>
     </motion.div>

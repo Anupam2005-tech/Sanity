@@ -1,251 +1,207 @@
 import express from 'express';
 import cors from 'cors';
-import { db, initDB } from './db/client';
-import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { ImportCreateRequest, ImportCreateResponse, ImportStatusResponse } from 'shared/types';
+import { callAI } from './aiExtractor';
+import { CRMRecord } from 'shared/types';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Task 3.1 & 3.6: Middleware (cors, express.json with 10mb limit)
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Initialize DB schema on startup
-initDB();
-
-// Task 3.2: Health check
-app.get('/api/health', (req, res) => {
+// Health check
+app.get('/api/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Task 3.3: POST /api/imports
-app.post('/api/imports', (req, res) => {
-  try {
-    const { rows, filename } = req.body as ImportCreateRequest;
-    
-    if (!rows || !Array.isArray(rows) || rows.length === 0) {
-      return res.status(400).json({ error: 'No rows provided' });
+// ── In-memory helpers ─────────────────────────────────────────────
+
+const VALID_CRM_STATUS = ['GOOD_LEAD_FOLLOW_UP', 'DID_NOT_CONNECT', 'BAD_LEAD', 'SALE_DONE'];
+const VALID_DATA_SOURCE = ['leads_on_demand', 'meridian_tower', 'eden_park', 'varah_swamy', 'sarjapur_plots'];
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) result.push(arr.slice(i, i + size));
+  return result;
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts: number, baseDelayMs: number): Promise<T> {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      attempt++;
+      if (attempt >= maxAttempts) throw error;
+      if (error.name === 'TokenLimitError') throw error;
+      const delay = error.name === 'RateLimitError'
+        ? Math.max(baseDelayMs * Math.pow(3, attempt - 1), 15000)
+        : baseDelayMs * Math.pow(2, attempt - 1);
+      console.log(`Attempt ${attempt} failed (${error.name || 'Error'}), retrying in ${delay}ms...`);
+      await sleep(delay);
     }
-    
-    if (rows.length > 5000) {
-      return res.status(413).json({ error: 'Row limit exceeded (max 5000)' });
-    }
-
-    const importId = crypto.randomUUID();
-    
-    // Use a transaction to insert the import and its raw rows
-    const insertImport = db.prepare(`
-      INSERT INTO imports (id, filename, total_rows, status)
-      VALUES (?, ?, ?, 'pending')
-    `);
-
-    const insertRecord = db.prepare(`
-      INSERT INTO import_records (import_id, row_index, status, skip_reason, raw_row_json)
-      VALUES (?, ?, 'pending', NULL, ?)
-    `);
-
-    const transaction = db.transaction(() => {
-      insertImport.run(importId, filename || null, rows.length);
-      for (let i = 0; i < rows.length; i++) {
-        insertRecord.run(importId, i, JSON.stringify(rows[i]));
-      }
-    });
-
-    transaction();
-
-    const response: ImportCreateResponse = {
-      importId,
-      totalRows: rows.length
-    };
-    
-    res.status(201).json(response);
-  } catch (error) {
-    console.error('Error creating import:', error);
-    res.status(500).json({ error: 'Internal server error' });
   }
-});
+  throw new Error('Unreachable');
+}
 
-// Task 3.4: GET /api/imports/:id
-app.get('/api/imports/:id', (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const importRow = db.prepare(`SELECT * FROM imports WHERE id = ?`).get(id) as any;
-    if (!importRow) {
-      return res.status(404).json({ error: 'Import not found' });
-    }
+function sanitiseRecord(rec: Partial<CRMRecord>, importTimestamp: string): Partial<CRMRecord> {
+  // Always stamp with current import time
+  rec.created_at = importTimestamp;
+  if (rec.crm_status && !VALID_CRM_STATUS.includes(rec.crm_status)) rec.crm_status = null as any;
+  if (rec.data_source && !VALID_DATA_SOURCE.includes(rec.data_source)) rec.data_source = null as any;
+  return rec;
+}
 
-    const response: ImportStatusResponse = {
-      id: importRow.id,
-      filename: importRow.filename,
-      status: importRow.status,
-      totalRows: importRow.total_rows,
-      batchesCompleted: importRow.batches_completed,
-      batchesTotal: importRow.batches_total
-    };
+function hasEmailOrMobile(rec: Partial<CRMRecord>): boolean {
+  return !!(rec.email?.trim() || rec.mobile_without_country_code?.trim());
+}
 
-    if (importRow.status === 'completed') {
-      const records = db.prepare(`SELECT * FROM import_records WHERE import_id = ? ORDER BY row_index`).all(id) as any[];
-      response.records = records.filter(r => r.status === 'success').map(r => ({
-        created_at: r.created_at_field,
-        name: r.name,
-        email: r.email,
-        country_code: r.country_code,
-        mobile_without_country_code: r.mobile_without_country_code,
-        company: r.company,
-        city: r.city,
-        state: r.state,
-        country: r.country,
-        lead_owner: r.lead_owner,
-        crm_status: r.crm_status,
-        crm_note: r.crm_note,
-        data_source: r.data_source,
-        possession_time: r.possession_time,
-        description: r.description
-      }));
-      response.skipped = records.filter(r => r.status === 'skipped').map(r => ({
-        index: r.row_index,
-        reason: r.skip_reason,
-        rawRow: JSON.parse(r.raw_row_json)
-      }));
-    }
+// ── SSE streaming process endpoint ───────────────────────────────
+//
+// POST /api/process
+// Body: { rows: object[], filename: string }
+// Streams SSE events: progress | complete | error
+//
+app.post('/api/process', async (req, res) => {
+  const { rows, filename } = req.body as { rows: any[]; filename: string };
 
-    res.status(200).json(response);
-  } catch (error) {
-    console.error('Error fetching import:', error);
-    res.status(500).json({ error: 'Internal server error' });
+  if (!rows || !Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({ error: 'No rows provided' });
+    return;
   }
-});
-
-import { processImport } from './batchProcessor';
-
-// Task 12.3: SSE streaming endpoint
-app.get('/api/imports/:id/stream', (req, res) => {
-  const { id } = req.params;
-
-  const importRow = db.prepare(`SELECT * FROM imports WHERE id = ?`).get(id) as any;
-  if (!importRow) {
-    res.status(404).json({ error: 'Import not found' });
+  if (rows.length > 5000) {
+    res.status(413).json({ error: 'Row limit exceeded (max 5000)' });
     return;
   }
 
+  // Switch to SSE
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
+    Connection: 'keep-alive',
   });
 
-  // Send initial status
-  res.write(`data: ${JSON.stringify({ type: 'status', status: importRow.status, batchesCompleted: importRow.batches_completed, batchesTotal: importRow.batches_total })}\n\n`);
+  const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-  // Poll DB for progress updates
-  const pollInterval = setInterval(() => {
-    try {
-      const row = db.prepare(`SELECT * FROM imports WHERE id = ?`).get(id) as any;
-      if (!row) {
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Import not found' })}\n\n`);
-        res.end();
-        clearInterval(pollInterval);
-        return;
-      }
+  let batchSize = parseInt(process.env.AI_BATCH_SIZE || '20', 10);
+  if (isNaN(batchSize) || batchSize < 5) batchSize = 5;
+  if (batchSize > 50) batchSize = 50;
 
-      if (row.status === 'processing') {
-        res.write(`data: ${JSON.stringify({ type: 'progress', batchesCompleted: row.batches_completed, batchesTotal: row.batches_total })}\n\n`);
-      } else if (row.status === 'completed') {
-        const records = db.prepare(`SELECT * FROM import_records WHERE import_id = ? ORDER BY row_index`).all(id) as any[];
-        const result = {
-          id: row.id,
-          filename: row.filename,
-          status: 'completed',
-          totalRows: row.total_rows,
-          batchesCompleted: row.batches_completed,
-          batchesTotal: row.batches_total,
-          records: records.filter(r => r.status === 'success').map(r => ({
-            created_at: r.created_at_field,
-            name: r.name,
-            email: r.email,
-            country_code: r.country_code,
-            mobile_without_country_code: r.mobile_without_country_code,
-            company: r.company,
-            city: r.city,
-            state: r.state,
-            country: r.country,
-            lead_owner: r.lead_owner,
-            crm_status: r.crm_status,
-            crm_note: r.crm_note,
-            data_source: r.data_source,
-            possession_time: r.possession_time,
-            description: r.description
-          })),
-          skipped: records.filter(r => r.status === 'skipped').map(r => ({
-            index: r.row_index,
-            reason: r.skip_reason,
-            rawRow: JSON.parse(r.raw_row_json)
-          }))
-        };
-        res.write(`data: ${JSON.stringify({ type: 'complete', result })}\n\n`);
-        res.end();
-        clearInterval(pollInterval);
-      } else if (row.status === 'failed') {
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Import processing failed' })}\n\n`);
-        res.end();
-        clearInterval(pollInterval);
-      }
-    } catch (err) {
-      // ignore polling errors
-    }
-  }, 500);
+  const rowsWithIndex = rows.map((data, i) => ({ rowIndex: i, data }));
+  const chunks = chunkArray(rowsWithIndex, batchSize);
+  const importTimestamp = new Date().toISOString();
 
-  req.on('close', () => {
-    clearInterval(pollInterval);
-  });
-});
+  const finalRecords: any[] = [];
+  const finalSkipped: any[] = [];
 
-// Task 3.5 & 6.7: POST /api/imports/:id/process
-app.post('/api/imports/:id/process', async (req, res) => {
+  send({ type: 'progress', batchesCompleted: 0, batchesTotal: chunks.length });
+
   try {
-    const { id } = req.params;
-    const importRow = db.prepare(`SELECT * FROM imports WHERE id = ?`).get(id) as any;
-    
-    if (!importRow) {
-      return res.status(404).json({ error: 'Import not found' });
+    for (let i = 0; i < chunks.length; i++) {
+      let currentBatch = chunks[i];
+      let tokenErrorHit = false;
+      let processedSuccessfully = false;
+
+      try {
+        const result = await withRetry(() => callAI(currentBatch), 3, 1000);
+        processBatch(currentBatch, result, importTimestamp, finalRecords, finalSkipped);
+        processedSuccessfully = true;
+      } catch (error: any) {
+        if (error.name === 'TokenLimitError') {
+          tokenErrorHit = true;
+        } else {
+          console.error('Batch failed after retries', error);
+          currentBatch.forEach(row => finalSkipped.push({ index: row.rowIndex, reason: 'AI processing failed after retries' }));
+          processedSuccessfully = true;
+        }
+      }
+
+      // Halve batch on token limit
+      if (tokenErrorHit && !processedSuccessfully) {
+        const half = Math.ceil(currentBatch.length / 2);
+        for (const subBatch of [currentBatch.slice(0, half), currentBatch.slice(half)]) {
+          try {
+            const result = await withRetry(() => callAI(subBatch), 3, 1000);
+            processBatch(subBatch, result, importTimestamp, finalRecords, finalSkipped);
+          } catch {
+            subBatch.forEach(row => finalSkipped.push({ index: row.rowIndex, reason: 'AI processing failed on sub-batch' }));
+          }
+        }
+      }
+
+      send({ type: 'progress', batchesCompleted: i + 1, batchesTotal: chunks.length });
     }
-    
-    if (importRow.status === 'processing' || importRow.status === 'completed') {
-      return res.status(400).json({ error: `Import is already ${importRow.status}` });
-    }
 
-    // Mark as processing
-    db.prepare(`UPDATE imports SET status = 'processing' WHERE id = ?`).run(id);
+    const result = {
+      id: 'in-memory',
+      filename: filename || 'import',
+      status: 'completed',
+      totalRows: rows.length,
+      batchesCompleted: chunks.length,
+      batchesTotal: chunks.length,
+      records: finalRecords.map(r => r.record),
+      skipped: finalSkipped,
+    };
 
-    const { records, skipped } = await processImport(id);
-
-    // Map records to expected response format
-    const formattedRecords = records.map(rec => rec.record);
-    
-    res.status(200).json({ 
-      importId: id,
-      records: formattedRecords,
-      skipped,
-      totalImported: records.length,
-      totalSkipped: skipped.length
-    });
-  } catch (error) {
-    console.error('Error starting processing:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    send({ type: 'complete', result });
+  } catch (err: any) {
+    console.error('Fatal processing error:', err);
+    send({ type: 'error', message: err.message || 'Processing failed' });
+  } finally {
+    res.end();
   }
 });
 
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
+// ── Batch result processor (pure, no DB) ─────────────────────────
+function processBatch(
+  batch: { rowIndex: number; data: any }[],
+  result: { records: { rowIndex: number; record: Partial<CRMRecord> }[]; skipped: { rowIndex: number; reason: string }[] },
+  importTimestamp: string,
+  finalRecords: any[],
+  finalSkipped: any[]
+) {
+  const processedRecords = result.records || [];
+  const processedSkipped: any[] = [...(result.skipped || [])];
+
+  for (const rec of processedRecords) {
+    sanitiseRecord(rec.record, importTimestamp);
+    if (!hasEmailOrMobile(rec.record)) {
+      processedSkipped.push({ index: rec.rowIndex, reason: 'Missing both email and mobile number' });
+    }
+  }
+
+  const skippedIndices = new Set(processedSkipped.map((s: any) => s.rowIndex ?? s.index));
+
+  const validRecords = processedRecords.filter(r => {
+    if (skippedIndices.has(r.rowIndex)) return false;
+    if (!hasEmailOrMobile(r.record)) {
+      processedSkipped.push({ index: r.rowIndex, reason: 'Missing both email and mobile number' });
+      return false;
+    }
+    return true;
+  });
+
+  // Account for rows the AI missed entirely
+  const accountedIndices = new Set([
+    ...validRecords.map(r => r.rowIndex),
+    ...processedSkipped.map((s: any) => s.rowIndex ?? s.index),
+  ]);
+  batch.filter(row => !accountedIndices.has(row.rowIndex)).forEach(row =>
+    processedSkipped.push({ index: row.rowIndex, reason: 'Row missing from AI response' })
+  );
+
+  finalRecords.push(...validRecords);
+  finalSkipped.push(...processedSkipped.map((s: any) => ({
+    index: s.rowIndex ?? s.index,
+    reason: s.reason,
+  })));
+}
 
 app.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
+  console.log(`Backend running on http://localhost:${PORT} (stateless, no DB)`);
 });

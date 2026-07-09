@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { ImportStatusResponse } from 'shared/types';
-import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Download, Eye, X } from 'lucide-react';
+import {
+  CheckCircle2, AlertTriangle, ChevronDown, ChevronUp,
+  Download, Eye, X, FileJson, FileText
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -36,6 +38,25 @@ const CRM_FIELD_LABELS: Record<string, string> = {
   description: 'Description',
 };
 
+// Min-width per field (px) — wider for text-heavy columns
+const FIELD_WIDTHS: Record<string, number> = {
+  created_at: 160,
+  name: 150,
+  email: 200,
+  country_code: 80,
+  mobile_without_country_code: 140,
+  company: 150,
+  city: 110,
+  state: 110,
+  country: 110,
+  lead_owner: 170,
+  crm_status: 160,
+  crm_note: 220,
+  data_source: 150,
+  possession_time: 140,
+  description: 200,
+};
+
 const STATUS_BADGES: Record<string, string> = {
   GOOD_LEAD_FOLLOW_UP: 'bg-accent/15 text-accent',
   DID_NOT_CONNECT: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
@@ -45,7 +66,6 @@ const STATUS_BADGES: Record<string, string> = {
 
 function cellValue(val: any, field: string) {
   if (val === undefined || val === null || val === '') return null;
-
   if (field === 'crm_status') {
     const badgeClass = STATUS_BADGES[String(val)] || 'bg-gray-500/15 text-gray-600';
     return (
@@ -54,7 +74,6 @@ function cellValue(val: any, field: string) {
       </span>
     );
   }
-
   return String(val);
 }
 
@@ -62,54 +81,111 @@ function formatDateTime(dateStr: string) {
   try {
     const d = new Date(dateStr);
     if (!isNaN(d.getTime())) {
-      const date = d.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
-      const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-      return `${date} ${time}`;
+      return d.toLocaleString('en-IN', {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      });
     }
   } catch {}
   return dateStr;
 }
 
+// ── Download helpers ────────────────────────────────────────────────
 function exportToCSV(records: any[], filename: string) {
   const csvRows: string[] = [];
-
-  csvRows.push(CRM_FIELDS.map(f => {
-    const label = CRM_FIELD_LABELS[f] || f;
-    return `"${label}"`;
-  }).join(','));
-
+  csvRows.push(CRM_FIELDS.map(f => `"${CRM_FIELD_LABELS[f] || f}"`).join(','));
   for (const rec of records) {
     const row = CRM_FIELDS.map(f => {
       const val = (rec as any)[f];
       if (val === undefined || val === null || val === '') return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
+      return `"${String(val).replace(/"/g, '""')}"`;
     }).join(',');
     csvRows.push(row);
   }
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  triggerDownload(blob, resolveFilename(filename, 'csv'));
+  toast.success('CSV downloaded successfully!');
+}
 
-  const csvContent = csvRows.join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+function exportToJSON(records: any[], filename: string) {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json;charset=utf-8;' });
+  triggerDownload(blob, resolveFilename(filename, 'json'));
+  toast.success('JSON downloaded successfully!');
+}
+
+function resolveFilename(name: string, ext: 'csv' | 'json') {
+  const base = name.replace(/\.(csv|json)$/i, '');
+  return `${base}_results.${ext}`;
+}
+
+function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = filename.endsWith('.csv') ? filename.replace('.csv', '_results.csv') : `${filename}_results.csv`;
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-  toast.success('CSV downloaded successfully!');
 }
 
 import { HoverTooltip, CRM_FIELD_DESCRIPTIONS } from './HoverTooltip';
 
-function PreviewModal({ records, onClose }: { records: any[]; onClose: () => void }) {
-  const parentRef = useRef<HTMLDivElement>(null);
+// ── Download Dropdown ───────────────────────────────────────────────
+function DownloadDropdown({ records, filename }: { records: any[]; filename: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
-  const rowVirtualizer = useVirtualizer({
-    count: records.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 45,
-    overscan: 10,
-  });
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-colors"
+      >
+        <Download className="w-3.5 h-3.5" />
+        Download
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.96 }}
+            transition={{ duration: 0.12 }}
+            className="absolute right-0 mt-1.5 w-44 rounded-md border border-input bg-card shadow-lg z-20 overflow-hidden"
+          >
+            <button
+              onClick={() => { exportToCSV(records, filename); setOpen(false); }}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-xs hover:bg-muted transition-colors text-left"
+            >
+              <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+              Download as CSV
+            </button>
+            <button
+              onClick={() => { exportToJSON(records, filename); setOpen(false); }}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-xs hover:bg-muted transition-colors text-left border-t border-border/50"
+            >
+              <FileJson className="w-3.5 h-3.5 text-muted-foreground" />
+              Download as JSON
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Preview Modal ───────────────────────────────────────────────────
+function PreviewModal({ records, onClose }: { records: any[]; onClose: () => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
     <motion.div
@@ -147,80 +223,79 @@ function PreviewModal({ records, onClose }: { records: any[]; onClose: () => voi
           </div>
         </div>
 
-        {/* Table — single scroll container for both axes keeps header/rows aligned */}
-        <div className="flex-1 overflow-hidden bg-background">
-          <div
-            ref={parentRef}
-            className="w-full h-full overflow-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+        {/* Scrollable table — single container so header & body scroll together horizontally */}
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+        >
+          <table
+            className="text-sm text-left border-collapse"
+            style={{ minWidth: 'max-content', width: '100%' }}
           >
-            <table className="text-sm text-left" style={{ minWidth: 'max-content', width: '100%' }}>
-              <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm text-muted-foreground font-semibold shadow-sm">
-                <tr className="border-b border-border">
-                  <th className="px-4 py-3 text-center border-r border-border/50 bg-muted/95" style={{ width: '64px', minWidth: '64px' }}>#</th>
-                  {CRM_FIELDS.map((field) => (
-                    <th key={field} className="px-3 py-3 whitespace-nowrap text-left" style={{ minWidth: '130px' }}>
-                      <HoverTooltip content={CRM_FIELD_DESCRIPTIONS[field] || ''}>{CRM_FIELD_LABELS[field] || field}</HoverTooltip>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody
-                style={{
-                  display: 'block',
-                  height: `${rowVirtualizer.getTotalSize()}px`,
-                  position: 'relative',
-                }}
-              >
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowData = records[virtualRow.index];
-                  return (
-                    <tr
-                      key={virtualRow.index}
-                      className="absolute top-0 left-0 flex border-b border-border/50 hover:bg-muted/30 transition-colors"
-                      style={{
-                        width: '100%',
-                        minWidth: 'max-content',
-                        height: `${virtualRow.size}px`,
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                    >
+            <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm text-muted-foreground font-semibold shadow-sm">
+              <tr className="border-b border-border">
+                <th className="px-4 py-3 text-center border-r border-border/50 bg-muted/95" style={{ minWidth: 52, width: 52 }}>#</th>
+                {CRM_FIELDS.map((field) => (
+                  <th
+                    key={field}
+                    className="px-4 py-3 whitespace-nowrap text-left"
+                    style={{ minWidth: FIELD_WIDTHS[field] || 130 }}
+                  >
+                    <HoverTooltip content={CRM_FIELD_DESCRIPTIONS[field] || ''}>
+                      {CRM_FIELD_LABELS[field] || field}
+                    </HoverTooltip>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rowData, i) => (
+                <tr
+                  key={i}
+                  className="border-b border-border/40 hover:bg-muted/30 transition-colors"
+                >
+                  <td
+                    className="px-4 py-2.5 text-center text-muted-foreground bg-muted/10 border-r border-border/50 text-xs"
+                    style={{ minWidth: 52, width: 52 }}
+                  >
+                    {i + 1}
+                  </td>
+                  {CRM_FIELDS.map((field) => {
+                    const val = (rowData as any)[field];
+                    const rendered = cellValue(val, field);
+                    const rawStr = val != null && val !== '' ? String(val) : '';
+                    const displayVal = field === 'created_at' && rawStr ? formatDateTime(rawStr) : rawStr;
+                    return (
                       <td
-                        className="flex items-center justify-center shrink-0 text-muted-foreground bg-muted/10 border-r border-border/50 text-xs"
-                        style={{ width: '64px', minWidth: '64px' }}
+                        key={field}
+                        className="px-4 py-2.5 whitespace-nowrap"
+                        style={{ minWidth: FIELD_WIDTHS[field] || 130, maxWidth: FIELD_WIDTHS[field] ? FIELD_WIDTHS[field] * 1.5 : 220 }}
                       >
-                        {virtualRow.index + 1}
+                        {rendered !== null ? (
+                          field === 'created_at' ? (
+                            <HoverTooltip content={rawStr}>{displayVal}</HoverTooltip>
+                          ) : (
+                            <HoverTooltip content={rawStr}>
+                              <span className="block truncate">{rendered}</span>
+                            </HoverTooltip>
+                          )
+                        ) : (
+                          <span className="text-muted-foreground/40">—</span>
+                        )}
                       </td>
-                      {CRM_FIELDS.map((field) => {
-                        const val = (rowData as any)[field];
-                        const rendered = cellValue(val, field);
-                        const rawStr = val !== undefined && val !== null && val !== '' ? String(val) : '';
-                        const displayVal = field === 'created_at' && rawStr ? formatDateTime(rawStr) : rawStr;
-                        return (
-                          <td key={field} className="px-3 py-2 truncate whitespace-nowrap flex items-center" style={{ minWidth: '130px', width: '130px' }}>
-                            {rendered !== null ? (
-                              field === 'created_at' ? (
-                                <HoverTooltip content={rawStr}>{displayVal}</HoverTooltip>
-                              ) : (
-                                <HoverTooltip content={rawStr}>{rendered}</HoverTooltip>
-                              )
-                            ) : (
-                              <span className="text-muted-foreground/50">—</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
+// ── ResultsStep ─────────────────────────────────────────────────────
 export function ResultsStep({ result, onReset }: ResultsStepProps) {
   const [showSkipped, setShowSkipped] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -239,10 +314,7 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
     }
   }, [records.length, skipped.length]);
 
-  const handleDownload = useCallback(() => {
-    const name = result.filename || 'import';
-    exportToCSV(records, name);
-  }, [records, result.filename]);
+  const filename = result.filename || 'import';
 
   return (
     <>
@@ -271,7 +343,7 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
               </div>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             {records.length > 0 && (
               <>
                 <button
@@ -281,13 +353,7 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
                 >
                   <Eye className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={handleDownload}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download CSV
-                </button>
+                <DownloadDropdown records={records} filename={filename} />
               </>
             )}
             <button
@@ -310,42 +376,64 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
             <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/20">
               <h3 className="text-sm font-semibold text-foreground">Successfully Imported Records</h3>
               <span className="text-xs text-muted-foreground">
-                {hasMore ? `Showing ${INITIAL_DISPLAY} of ${records.length} records` : `${records.length} record${records.length !== 1 ? 's' : ''}`}
+                {hasMore
+                  ? `Showing ${INITIAL_DISPLAY} of ${records.length} records`
+                  : `${records.length} record${records.length !== 1 ? 's' : ''}`}
               </span>
             </div>
-            <div className="w-full overflow-x-auto overflow-y-auto max-h-[500px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-              <table className="w-full text-sm text-left min-w-max">
-                <thead className="sticky top-0 z-10 bg-muted/80 text-muted-foreground font-semibold shadow-sm">
+
+            {/* Inline preview table */}
+            <div className="w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              <table className="text-sm text-left border-collapse" style={{ minWidth: 'max-content', width: '100%' }}>
+                <thead className="bg-muted/80 text-muted-foreground font-semibold">
                   <tr className="border-b border-border">
-                    <th className="px-4 py-3 w-16 text-center shrink-0 border-r border-border/50 bg-muted/80">#</th>
+                    <th className="px-4 py-3 text-center border-r border-border/50 bg-muted/80" style={{ minWidth: 52, width: 52 }}>#</th>
                     {CRM_FIELDS.map((field) => (
-                      <th key={field} className="px-3 py-3 whitespace-nowrap text-left min-w-[140px]">
-                        <HoverTooltip content={CRM_FIELD_DESCRIPTIONS[field] || ''}>{CRM_FIELD_LABELS[field] || field}</HoverTooltip>
+                      <th
+                        key={field}
+                        className="px-4 py-3 whitespace-nowrap text-left"
+                        style={{ minWidth: FIELD_WIDTHS[field] || 130 }}
+                      >
+                        <HoverTooltip content={CRM_FIELD_DESCRIPTIONS[field] || ''}>
+                          {CRM_FIELD_LABELS[field] || field}
+                        </HoverTooltip>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {records.slice(0, INITIAL_DISPLAY).map((rowData, i) => (
-                    <tr key={i} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-2.5 text-center text-muted-foreground bg-muted/10 border-r border-border/50 text-xs w-16">
+                    <tr key={i} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
+                      <td
+                        className="px-4 py-2.5 text-center text-muted-foreground bg-muted/10 border-r border-border/50 text-xs"
+                        style={{ minWidth: 52, width: 52 }}
+                      >
                         {i + 1}
                       </td>
                       {CRM_FIELDS.map((field) => {
                         const val = (rowData as any)[field];
                         const rendered = cellValue(val, field);
-                        const rawStr = val !== undefined && val !== null && val !== '' ? String(val) : '';
+                        const rawStr = val != null && val !== '' ? String(val) : '';
                         const displayVal = field === 'created_at' && rawStr ? formatDateTime(rawStr) : rawStr;
                         return (
-                          <td key={field} className="px-3 py-2.5 truncate max-w-[180px] min-w-[140px]">
+                          <td
+                            key={field}
+                            className="px-4 py-2.5 whitespace-nowrap"
+                            style={{
+                              minWidth: FIELD_WIDTHS[field] || 130,
+                              maxWidth: FIELD_WIDTHS[field] ? FIELD_WIDTHS[field] * 1.5 : 220
+                            }}
+                          >
                             {rendered !== null ? (
                               field === 'created_at' ? (
                                 <HoverTooltip content={rawStr}>{displayVal}</HoverTooltip>
                               ) : (
-                                <HoverTooltip content={rawStr}>{rendered}</HoverTooltip>
+                                <HoverTooltip content={rawStr}>
+                                  <span className="block truncate">{rendered}</span>
+                                </HoverTooltip>
                               )
                             ) : (
-                              <span className="text-muted-foreground/50">—</span>
+                              <span className="text-muted-foreground/40">—</span>
                             )}
                           </td>
                         );
@@ -355,6 +443,7 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
                 </tbody>
               </table>
             </div>
+
             {hasMore && (
               <div className="px-4 py-3 border-t border-border flex items-center justify-center bg-muted/10">
                 <button
@@ -385,7 +474,9 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
                 <AlertTriangle className="w-5 h-5" />
                 <h3>Skipped Records ({skipped.length})</h3>
               </div>
-              {showSkipped ? <ChevronUp className="w-5 h-5 text-amber-600" /> : <ChevronDown className="w-5 h-5 text-amber-600" />}
+              {showSkipped
+                ? <ChevronUp className="w-5 h-5 text-amber-600" />
+                : <ChevronDown className="w-5 h-5 text-amber-600" />}
             </button>
 
             <AnimatePresence initial={false}>
@@ -398,17 +489,12 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
                   transition={{ duration: 0.25, ease: 'easeInOut' }}
                   className="overflow-hidden"
                 >
-                  <div className="w-full overflow-x-auto overflow-y-auto max-h-[400px] border-t border-amber-500/20 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                    <table className="w-full text-sm text-left">
-                      <colgroup>
-                        <col className="w-20" />
-                        <col className="w-72" />
-                        <col />
-                      </colgroup>
+                  <div className="w-full overflow-x-auto max-h-[400px] overflow-y-auto border-t border-amber-500/20 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    <table className="w-full text-sm text-left border-collapse" style={{ minWidth: 600 }}>
                       <thead className="sticky top-0 z-10 bg-amber-500/10 text-amber-700 dark:text-amber-500 font-semibold">
                         <tr>
-                          <th className="px-4 py-3 border-b border-amber-500/20 text-center">Row</th>
-                          <th className="px-4 py-3 border-b border-amber-500/20">Reason</th>
+                          <th className="px-4 py-3 border-b border-amber-500/20 text-center" style={{ width: 64 }}>Row</th>
+                          <th className="px-4 py-3 border-b border-amber-500/20" style={{ width: 280 }}>Reason</th>
                           <th className="px-4 py-3 border-b border-amber-500/20">Raw Data</th>
                         </tr>
                       </thead>
