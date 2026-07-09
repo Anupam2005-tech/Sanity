@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import React from "react";
 import { ToastProvider } from "./components/ToastProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 
-const inter = Inter({ subsets: ["latin"] });
+const geist = localFont({
+  src: "../../../public/fonts/GeistVF.woff",
+  variable: "--font-geist",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Sanity CSV Importer",
@@ -36,7 +40,7 @@ export default function RootLayout({
           `
         }} />
       </head>
-      <body className={`${inter.className} min-h-screen flex flex-col bg-background`}>
+      <body className={`${geist.variable} min-h-screen flex flex-col bg-background`}>
         <ToastProvider />
         <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="container flex h-14 items-center justify-between">

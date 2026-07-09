@@ -58,9 +58,12 @@ If a row contains multiple mobile numbers:
   - Append ALL remaining numbers to crm_note (e.g. "Extra mobiles: 9988776655").
 
 RULE 7 — Skip Invalid Records (MANDATORY):
-If a row has NEITHER a valid email NOR a valid mobile number, you MUST skip it.
-Add it to the "skipped" array with reason "Missing email and mobile".
-Do NOT add it to "records". This rule is absolute.
+- If a row has NEITHER a valid email NOR a valid mobile number, you MUST skip it. (reason: "Missing both email and mobile number")
+- If a row has NEITHER a valid email NOR a valid name, you MUST skip it. (reason: "Missing both email and name")
+If a row meets either of these skip conditions:
+  - Add it to the "skipped" array with the corresponding reason.
+  - Do NOT add it to "records". This rule is absolute.
+
 
 RULE 8 — CSV Compatibility:
 Do NOT introduce line breaks inside field values.

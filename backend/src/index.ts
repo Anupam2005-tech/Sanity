@@ -71,9 +71,20 @@ function sanitiseRecord(rec: Partial<CRMRecord>, importTimestamp: string): Parti
   return rec;
 }
 
-function hasEmailOrMobile(rec: Partial<CRMRecord>): boolean {
-  return !!(rec.email?.trim() || rec.mobile_without_country_code?.trim());
+function shouldKeepRecord(rec: Partial<CRMRecord>): { keep: boolean; reason?: string } {
+  const hasEmail = !!rec.email?.trim();
+  const hasMobile = !!rec.mobile_without_country_code?.trim();
+  const hasName = !!rec.name?.trim();
+
+  if (!hasEmail && !hasMobile) {
+    return { keep: false, reason: 'Missing both email and mobile number' };
+  }
+  if (!hasEmail && !hasName) {
+    return { keep: false, reason: 'Missing both email and name' };
+  }
+  return { keep: true };
 }
+
 
 // ── SSE streaming process endpoint ───────────────────────────────
 //
@@ -184,8 +195,9 @@ function processBatch(
 
   for (const rec of processedRecords) {
     sanitiseRecord(rec.record, importTimestamp);
-    if (!hasEmailOrMobile(rec.record)) {
-      processedSkipped.push({ index: rec.rowIndex, reason: 'Missing both email and mobile number' });
+    const check = shouldKeepRecord(rec.record);
+    if (!check.keep) {
+      processedSkipped.push({ index: rec.rowIndex, reason: check.reason });
     }
   }
 
@@ -193,8 +205,9 @@ function processBatch(
 
   const validRecords = processedRecords.filter(r => {
     if (skippedIndices.has(r.rowIndex)) return false;
-    if (!hasEmailOrMobile(r.record)) {
-      processedSkipped.push({ index: r.rowIndex, reason: 'Missing both email and mobile number' });
+    const check = shouldKeepRecord(r.record);
+    if (!check.keep) {
+      processedSkipped.push({ index: r.rowIndex, reason: check.reason });
       return false;
     }
     return true;
