@@ -8,7 +8,7 @@ An AI-powered CSV importer that intelligently maps any arbitrary CSV structure i
 
 1. **Upload** — Drag-and-drop or pick any CSV file. The app parses it incrementally (streaming) using PapaParse so large files show rows as they load without freezing the UI.
 2. **Preview** — See the raw CSV data in a virtualized table (handles 100k+ rows smoothly) with sticky headers and horizontal + vertical scrolling.
-3. **Confirm** — Hit "Start AI Import". The frontend sends all rows to the backend over a streaming connection. The backend processes them in configurable batches through an AI model, streaming live progress back.
+3. **Confirm** — Hit "Start AI Import". The frontend sends all rows to the backend over a streaming connection. The backend processes them in configurable batches, streaming live progress back. The frontend progress bar uses a real-time drift animation that reacts dynamically to batch completions, ensuring smooth, non-blocking UI feedback.
 4. **Results** — AI-extracted CRM records are displayed in a table with hover tooltips, status badges, and download options (CSV or JSON). Skipped rows (missing email and mobile) are shown separately.
 
 ---
@@ -20,6 +20,8 @@ An AI-powered CSV importer that intelligently maps any arbitrary CSV structure i
 | **Stateless backend (no DB)** | Processing is purely in-memory — rows in, CRM records out. No SQLite, no persisted state, no native module headaches. Simpler, faster, easier to deploy anywhere. |
 | **Single streaming endpoint** | `POST /api/process` receives rows, runs AI batches, and streams SSE progress events back through the same HTTP connection. No polling, no import IDs, no two-step handshake. |
 | **XHR streaming on the frontend** | `EventSource` only supports GET requests. XHR lets us POST the row data and still consume the SSE response incrementally — best of both worlds. |
+| **Real-time drift-based progress** | Replaces static, simulated progress timers. It animates progress immediately to signify active network processing and leverages a drift algorithm to animate smoothly between actual batch completion events received from the backend SSE stream, finishing precisely at 100%. |
+| **Mobile-First Responsive Layouts** | Fluid container padding (1rem on mobile, 2rem on desktop), scrollbar-free virtualized tables, truncated elements to prevent layout shifts, and large touch-friendly buttons guarantee a premium experience on mobile and tablet. |
 | **Client-side CSV parsing** | Avoids uploading a raw file to the server. PapaParse streaming mode parses the CSV directly in the browser and sends clean JSON rows. |
 | **AI as a swappable provider** | Gemini is tried first. If it fails, OpenRouter is used as a fallback. The system prompt is shared between both providers. |
 | **Batch processing with retry + backoff** | Large CSVs are split into configurable-size batches (default: 20 rows). On rate limits (429), retries use exponential backoff. On token limit errors, batches are halved automatically. |
@@ -158,6 +160,10 @@ cp .env.example .env   # then edit .env
 # Build and start both services
 docker compose up --build
 ```
+
+> [!NOTE]
+> Next.js requires environment variables prefixed with `NEXT_PUBLIC_` to be present during build time. Our `docker-compose.yml` automatically passes `NEXT_PUBLIC_BACKEND_URL` as a build argument (`args`), which is then baked into the production bundle by the frontend `Dockerfile`. If you build the image manually without compose, specify it as a build argument:
+> `docker build --build-arg NEXT_PUBLIC_BACKEND_URL=http://localhost:3001 -t groweasy-frontend -f frontend/Dockerfile .`
 
 - Frontend → [http://localhost:3000](http://localhost:3000)
 - Backend  → [http://localhost:3001](http://localhost:3001)

@@ -15,7 +15,7 @@ const STEPS = [
 
 export function ProgressIndicator({ currentStep }: ProgressIndicatorProps) {
   return (
-    <div className="w-full py-8">
+    <div className="w-full py-4 sm:py-8">
       <div className="max-w-2xl mx-auto px-4">
         {/* Circles + connecting lines */}
         <div className="flex items-center">
@@ -25,7 +25,7 @@ export function ProgressIndicator({ currentStep }: ProgressIndicatorProps) {
             return (
               <React.Fragment key={step.id}>
                 <motion.div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                     isCompleted
                       ? 'bg-sky-500 text-white'
                       : isActive
@@ -36,7 +36,7 @@ export function ProgressIndicator({ currentStep }: ProgressIndicatorProps) {
                   animate={{ scale: isActive ? 1.15 : 1 }}
                   transition={{ duration: 0.3, ease: 'easeInOut' }}
                 >
-                  {isCompleted ? <Check className="w-4 h-4" /> : step.id}
+                  {isCompleted ? <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : step.id}
                 </motion.div>
                 {i < STEPS.length - 1 && (
                   <div
@@ -58,7 +58,7 @@ export function ProgressIndicator({ currentStep }: ProgressIndicatorProps) {
           {STEPS.map((step) => (
             <span
               key={step.id}
-              className={`text-[10px] font-semibold text-center w-8 ${
+              className={`text-[9px] sm:text-[10px] font-semibold text-center w-7 sm:w-8 ${
                 currentStep === step.id ? 'text-sky-500' : 'text-gray-400'
               }`}
             >

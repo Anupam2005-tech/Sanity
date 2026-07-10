@@ -41,7 +41,7 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="w-full max-w-3xl mx-auto flex flex-col space-y-6"
+      className="w-full max-w-3xl mx-auto flex flex-col space-y-4 sm:space-y-6 px-4"
     >
       {rows.length > 1000 && (
         <motion.div
@@ -54,32 +54,33 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
         </motion.div>
       )}
 
-      <div className="border border-border rounded-xl p-4 flex flex-col md:flex-row items-center gap-4">
-        <div className="p-2 text-muted-foreground rounded-lg flex items-center justify-center shrink-0">
+      <div className="border border-border rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
+        <div className="p-2 text-muted-foreground rounded-lg flex items-center justify-center shrink-0 hidden sm:flex">
           <Upload className="w-5 h-5" />
         </div>
 
-        <div className="flex-1 text-center md:text-left space-y-1 min-w-0">
-          <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+        <div className="flex-1 text-center sm:text-left space-y-1 min-w-0 w-full">
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
               CSV Loaded
             </span>
           </div>
-          <h2 className="text-xl md:text-2xl font-bold tracking-tight truncate">
+          <h2 className="text-lg sm:text-2xl font-bold tracking-tight truncate w-full" title={filename}>
             {filename || 'Uploaded File'}
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground">
             {rows.length.toLocaleString()} rows and {headers.length} columns detected.
           </p>
         </div>
 
-        <div className="shrink-0">
+        <div className="shrink-0 w-full sm:w-auto">
           <button
             onClick={() => setIsOpen(true)}
             title="Preview Data"
-            className="p-2 rounded-lg text-muted-foreground hover:bg-muted transition-all flex items-center justify-center border border-input"
+            className="w-full sm:w-auto p-2.5 sm:p-2 rounded-lg text-muted-foreground hover:bg-muted transition-all flex items-center justify-center gap-2 border border-input text-xs font-medium"
           >
-            <Eye className="w-4 h-4" />
+            <Eye className="w-4 h-4 shrink-0" />
+            <span className="sm:hidden">Preview Data</span>
           </button>
         </div>
       </div>
@@ -103,13 +104,13 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
       <div className="flex justify-end gap-2">
         <button
           onClick={onReset}
-          className="px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-all"
+          className="px-3.5 py-2 sm:py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-all"
         >
           Previous
         </button>
         <button
           onClick={onConfirm}
-          className="px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-all flex items-center gap-1"
+          className="px-3.5 py-2 sm:py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-all flex items-center gap-1"
         >
           Confirm Import
           <ArrowRight className="w-3 h-3" />
@@ -134,19 +135,19 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
               transition={{ duration: 0.2 }}
               className="relative w-full h-full bg-card shadow-2xl flex flex-col overflow-hidden"
             >
-              <div className="flex items-center justify-between border-b px-4 py-3 bg-white/80">
-                <div className="space-y-1">
-                  <h3 className="text-lg font-bold flex items-center gap-2">
-                    <FileSpreadsheet className="w-5 h-5 text-primary" />
-                    {filename || 'CSV Data Preview'}
+              <div className="flex items-center justify-between border-b px-4 py-3 bg-white/80 gap-4">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg font-bold flex items-center gap-2 min-w-0">
+                    <FileSpreadsheet className="w-5 h-5 text-primary shrink-0" />
+                    <span className="truncate flex-1 pr-1">{filename || 'CSV Data Preview'}</span>
                   </h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">
                     Showing {rows.length.toLocaleString()} rows × {headers.length} columns
                   </p>
                 </div>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -161,7 +162,7 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
                   <table className="text-sm text-left" style={{ minWidth: 'max-content', width: '100%' }}>
                     <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm text-muted-foreground font-semibold shadow-sm">
                       <tr className="border-b border-border">
-                        <th className="px-4 py-3 text-center border-r border-border/50" style={{ width: '64px', minWidth: '64px' }}>#</th>
+                        <th className="px-4 py-3 text-center border-r border-border/50 bg-muted/95" style={{ width: '64px', minWidth: '64px' }}>#</th>
                         {headers.map((header, i) => (
                           <th key={i} className="px-4 py-3 whitespace-nowrap text-left" style={{ minWidth: '150px' }}>
                             {header}
@@ -190,7 +191,7 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
                             }}
                           >
                             <td
-                              className="flex items-center justify-center shrink-0 text-muted-foreground bg-muted/10 border-r border-border/50"
+                              className="flex items-center justify-center shrink-0 text-muted-foreground bg-muted/10 border-r border-border/50 text-xs"
                               style={{ width: '64px', minWidth: '64px' }}
                             >
                               {virtualRow.index + 1}
@@ -199,7 +200,7 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
                               const cellVal = rowData[header];
                               const cellStr = cellVal !== undefined && cellVal !== null ? String(cellVal) : '';
                               return (
-                                <td key={i} className="px-4 py-2 truncate whitespace-nowrap flex items-center" style={{ minWidth: '150px', width: '150px' }}>
+                                <td key={i} className="px-4 py-2 truncate whitespace-nowrap flex items-center text-xs sm:text-sm" style={{ minWidth: '150px', width: '150px' }}>
                                   {cellStr ? <HoverTooltip content={cellStr}>{cellStr}</HoverTooltip> : <span className="text-muted-foreground/50">—</span>}
                                 </td>
                               );
@@ -215,7 +216,7 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
               <div className="flex justify-end gap-2 border-t px-4 py-3">
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-all"
+                  className="px-3.5 py-2 sm:py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-all"
                 >
                   Close Preview
                 </button>
@@ -224,7 +225,7 @@ export function PreviewTable({ headers, rows, onConfirm, onReset, filename }: Pr
                     setIsOpen(false);
                     onConfirm();
                   }}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-all flex items-center gap-1"
+                  className="px-3.5 py-2 sm:py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-all flex items-center gap-1"
                 >
                   Confirm Import
                   <ArrowRight className="w-3 h-3" />

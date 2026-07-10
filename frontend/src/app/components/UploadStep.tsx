@@ -100,16 +100,18 @@ export function UploadStep({ onUploadSuccess }: UploadStepProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="w-full flex flex-col items-center justify-center py-12"
+      className="w-full flex flex-col items-center justify-center py-6 sm:py-12 px-4"
     >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.1 }}
-        className="text-center mb-8"
+        className="text-center mb-6 sm:mb-8"
       >
-        <h2 className="text-3xl font-bold tracking-tight mb-2">Import your leads</h2>
-        <p className="text-muted-foreground">Upload a CSV file and let our AI map it to the GrowEasy CRM.</p>
+        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Import your leads</h2>
+        <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto px-4">
+          Upload a CSV file and let our AI map it to the GrowEasy CRM.
+        </p>
       </motion.div>
 
       <motion.div
@@ -119,7 +121,7 @@ export function UploadStep({ onUploadSuccess }: UploadStepProps) {
         onClick={() => fileInputRef.current?.click()}
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.99 }}
-        className={`w-full max-w-xl border-2 border-dashed rounded-xl p-12 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 ${
+        className={`w-full max-w-xl border-2 border-dashed rounded-xl p-6 sm:p-12 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 ${
           isDragging
             ? 'border-border bg-muted scale-[1.02]'
             : 'border-muted-foreground/25 hover:border-border hover:bg-muted/50'
@@ -127,12 +129,14 @@ export function UploadStep({ onUploadSuccess }: UploadStepProps) {
       >
         <motion.div
           animate={isDragging ? { y: [-4, 4, -4], transition: { duration: 1, repeat: Infinity } } : {}}
-          className="p-3 rounded-full mb-4"
+          className="p-2 sm:p-3 rounded-full mb-3 sm:mb-4"
         >
-          <UploadCloud className="w-6 h-6 text-muted-foreground" />
+          <UploadCloud className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground" />
         </motion.div>
-        <h3 className="text-lg font-semibold mb-1">Click or drag file to this area to upload</h3>
-        <p className="text-sm text-muted-foreground mb-6">Support for a single or bulk upload. Strictly prohibit from uploading company data or other band files.</p>
+        <h3 className="text-base sm:text-lg font-semibold mb-1 text-center px-2">Click or drag file to this area to upload</h3>
+        <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center px-4 max-w-sm">
+          Support for a single or bulk upload. Maximum size is 10MB.
+        </p>
 
         <input
           type="file"

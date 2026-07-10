@@ -44,23 +44,37 @@ export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }
     };
   }, []);
 
-  // Animated progress bar — fills smoothly up to 92% while AI works
+  // Animated progress bar — base percentage + smooth drift towards next cap
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isProcessing) {
-      setDisplayPercent(0);
       interval = setInterval(() => {
         setDisplayPercent(prev => {
-          if (prev >= 92) return prev;
-          const remaining = 92 - prev;
-          return prev + Math.max(1, Math.ceil(remaining * 0.08));
+          if (!progress) {
+            // Initial startup drift towards 5%
+            const target = 5;
+            if (prev >= target) return prev;
+            return prev + (target - prev) * 0.08;
+          }
+          const basePct = (progress.completed / progress.total) * 100;
+          if (prev < basePct) {
+            return basePct;
+          }
+          const targetPct = progress.completed === progress.total
+            ? 100
+            : ((progress.completed + 1) / progress.total) * 100;
+          const cap = basePct + (targetPct - basePct) * 0.95;
+          if (prev >= cap) return prev;
+
+          const remaining = cap - prev;
+          return prev + Math.max(0.1, remaining * 0.05);
         });
-      }, 350);
+      }, 300);
     } else {
       setDisplayPercent(0);
     }
     return () => { if (interval) clearInterval(interval); };
-  }, [isProcessing]);
+  }, [isProcessing, progress]);
 
   // Rotate status texts every 3s
   useEffect(() => {
@@ -139,15 +153,15 @@ export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="w-full max-w-lg mx-auto py-12 flex flex-col items-center"
+      className="w-full max-w-lg mx-auto py-6 sm:py-12 px-4 flex flex-col items-center"
     >
-      <div className="bg-card border rounded-xl p-8 w-full shadow-sm">
-        <h2 className="text-2xl font-bold text-center mb-6">Ready to Import</h2>
+      <div className="bg-card border rounded-xl p-5 sm:p-8 w-full shadow-sm">
+        <h2 className="text-xl sm:text-2xl font-bold text-center mb-6">Ready to Import</h2>
 
-        <div className="space-y-4 mb-8">
+        <div className="space-y-2 sm:space-y-4 mb-6 sm:mb-8 text-sm">
           <div className="flex justify-between py-3 border-b">
             <span className="text-muted-foreground">File</span>
-            <span className="font-medium truncate max-w-[200px]">{filename || 'Unknown'}</span>
+            <span className="font-medium truncate max-w-[150px] sm:max-w-[240px]" title={filename}>{filename || 'Unknown'}</span>
           </div>
           <div className="flex justify-between py-3 border-b">
             <span className="text-muted-foreground">Total Rows</span>
@@ -161,7 +175,7 @@ export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }
             animate={{ opacity: 1 }}
             className="flex flex-col items-center justify-center py-4 space-y-4 w-full"
           >
-            <Loader2 className="w-10 h-10 animate-spin text-muted-foreground" />
+            <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 animate-spin text-muted-foreground" />
 
             <div className="text-center h-16 flex flex-col items-center justify-center w-full">
               <AnimatePresence mode="wait">
@@ -171,12 +185,12 @@ export function ConfirmStep({ filename, totalRows, rows, onSuccess, onPrevious }
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.25 }}
-                  className="font-medium text-lg"
+                  className="font-medium text-base sm:text-lg"
                 >
                   {STATUS_TEXTS[statusIndex]}
                 </motion.p>
               </AnimatePresence>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
                 {progress && progress.total > 0
                   ? `Processing batch ${progress.completed} of ${progress.total}...`
                   : 'Starting AI analysis...'}

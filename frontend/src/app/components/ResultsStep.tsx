@@ -144,10 +144,10 @@ function DownloadDropdown({ records, filename }: { records: any[]; filename: str
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative w-full sm:w-auto">
       <button
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-colors"
+        className="flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-colors w-full sm:w-auto"
       >
         <Download className="w-3.5 h-3.5" />
         Download
@@ -160,7 +160,7 @@ function DownloadDropdown({ records, filename }: { records: any[]; filename: str
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.96 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 mt-1.5 w-44 rounded-md border border-input bg-card shadow-lg z-20 overflow-hidden"
+            className="absolute right-0 left-0 sm:left-auto mt-1.5 w-full sm:w-44 rounded-md border border-input bg-card shadow-lg z-20 overflow-hidden"
           >
             <button
               onClick={() => { exportToCSV(records, filename); setOpen(false); }}
@@ -205,9 +205,13 @@ function PreviewModal({ records, onClose }: { records: any[]; onClose: () => voi
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0 bg-card">
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full border border-border/50">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border shrink-0 bg-card gap-4">
+          <div className="space-y-0.5 min-w-0 flex-1">
+            <h2 className="text-sm sm:text-base font-semibold truncate">Preview Records</h2>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">{records.length.toLocaleString()} records</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="hidden sm:inline-block text-[11px] text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full border border-border/50">
               Hover over any cell to see the full value
             </span>
             <button
@@ -325,26 +329,26 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
-          className="w-full flex items-center justify-between p-4 bg-card border rounded-lg shadow-sm"
+          className="w-full flex flex-col md:flex-row items-stretch md:items-center justify-between p-4 bg-card border rounded-lg shadow-sm gap-4"
         >
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-foreground bg-muted px-3 py-1.5 rounded-md font-medium border border-border">
-              <CheckCircle2 className="w-5 h-5" />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full md:w-auto">
+            <div className="flex items-center justify-center gap-2 text-foreground bg-muted px-3 py-2 sm:py-1.5 rounded-md font-medium border border-border text-xs sm:text-sm w-full sm:w-auto">
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
               <span>{records.length} Imported</span>
             </div>
             {skipped.length > 0 && (
-              <div className="flex items-center gap-2 text-amber-600 bg-amber-500/10 px-3 py-1.5 rounded-md font-medium">
-                <AlertTriangle className="w-5 h-5" />
+              <div className="flex items-center justify-center gap-2 text-amber-600 bg-amber-500/10 px-3 py-2 sm:py-1.5 rounded-md font-medium text-xs sm:text-sm w-full sm:w-auto">
+                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <span>{skipped.length} Skipped</span>
               </div>
             )}
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center justify-center sm:justify-end w-full md:w-auto">
             {records.length > 0 && (
               <>
                 <button
                   onClick={() => setShowPreview(true)}
-                  className="flex items-center justify-center p-2 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-colors"
+                  className="flex items-center justify-center p-2.5 sm:p-2 rounded-md text-xs font-medium border border-input bg-background hover:bg-muted transition-colors"
                   title="Preview all records"
                 >
                   <Eye className="w-4 h-4" />
@@ -354,7 +358,7 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
             )}
             <button
               onClick={onReset}
-              className="px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+              className="px-3 py-2 sm:py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity w-full sm:w-auto"
             >
               Start New Import
             </button>
@@ -369,9 +373,9 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
             transition={{ duration: 0.3, delay: 0.2 }}
             className="border rounded-md overflow-hidden bg-card shadow-sm"
           >
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-muted/20">
-              <h3 className="text-sm font-semibold text-foreground">Successfully Imported Records</h3>
-              <span className="text-xs text-muted-foreground">
+            <div className="px-4 py-3 border-b border-border flex flex-col sm:flex-row items-start sm:items-center justify-between bg-muted/20 gap-1 sm:gap-0">
+              <h3 className="text-xs sm:text-sm font-semibold text-foreground">Successfully Imported Records</h3>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">
                 {hasMore
                   ? `Showing ${INITIAL_DISPLAY} of ${records.length} records`
                   : `${records.length} record${records.length !== 1 ? 's' : ''}`}
@@ -439,18 +443,6 @@ export function ResultsStep({ result, onReset }: ResultsStepProps) {
                 </tbody>
               </table>
             </div>
-
-            {hasMore && (
-              <div className="px-4 py-3 border-t border-border flex items-center justify-center bg-muted/10">
-                <button
-                  onClick={() => setShowPreview(true)}
-                  className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  View all {records.length} records
-                </button>
-              </div>
-            )}
           </motion.div>
         )}
 

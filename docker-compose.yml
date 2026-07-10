@@ -16,6 +16,8 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        - NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
     ports:
       - "3000:3000"
     environment:
